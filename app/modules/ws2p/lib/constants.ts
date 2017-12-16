@@ -16,6 +16,7 @@ export const WS2PConstants = {
   WS2P_DEFAULT_HEAD_VERSION:1,
   WS2P_API_VERSION: 1,
   WS2P_HEAD_VERSION: 2,
+  DOWNGRADE_WINDOW: 5, // Number of feedrate blocks from which lower version heads are accepted again
 
   WS2P_UPNP_TTL: 600,
   WS2P_PORTS_START: 20900,

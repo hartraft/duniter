@@ -32,7 +32,8 @@ export interface WS2PHead {
 }
 
 export interface WS2pHeadCache extends WS2PHead {
-  blockstamp:string
+  blockstamp:string,
+  version:number
 }
 
 export class WS2PCluster {
@@ -107,7 +108,7 @@ export class WS2PCluster {
       if (current) {
         const myHead = await this.sayHeadChangedTo(current.number, current.hash)
         const blockstamp = [current.number, current.hash].join('-')
-        this.headsCache[myFullId] = { blockstamp, message: myHead.message, sig: myHead.sig, messageV2: myHead.messageV2, sigV2: myHead.sigV2, step:myHead.step  }
+        this.headsCache[myFullId] = { blockstamp, message: myHead.message, sig: myHead.sig, messageV2: myHead.messageV2, sigV2: myHead.sigV2, step:myHead.step, version: WS2PConstants.WS2P_HEAD_VERSION }
 
       }
     }
@@ -132,17 +133,17 @@ export class WS2PCluster {
             throw "HEAD_MESSAGE_WRONGLY_SIGNED"
           } else {
             const [,,, pub, blockstamp, ws2pId,,,,,]:string[] = h.messageV2.split(':')
-            this.headReceived(h, pub, [pub, ws2pId].join('-'), blockstamp)
+            this.headReceived(h, pub, [pub, ws2pId].join('-'), blockstamp, 2)
           }
         } 
         // HEAD v1 and HEAD v0
         else if (h.message && h.sig) {
           if (h.message.match(WS2PConstants.HEAD_V1_REGEXP)) {
             const [,,, pub, blockstamp, ws2pId,,,]:string[] = h.message.split(':')
-            await this.headReceived(h, pub, [pub, ws2pId].join('-'), blockstamp)
+            await this.headReceived(h, pub, [pub, ws2pId].join('-'), blockstamp, 1)
           } else if (h.message.match(WS2PConstants.HEAD_V0_REGEXP)) {
             const [,,pub, blockstamp]:string[] = h.message.split(':')
-            await this.headReceived(h, pub, [pub, "00000000"].join('-'), blockstamp)
+            await this.headReceived(h, pub, [pub, "00000000"].join('-'), blockstamp, 0)
           } else {
             throw "HEAD_WRONG_FORMAT"
           }
@@ -176,7 +177,7 @@ export class WS2PCluster {
     })
   }
 
-  private async headReceived(h:WS2PHead, pub:string, fullId:string, blockstamp:string) {
+  private async headReceived(h:WS2PHead, pub:string, fullId:string, blockstamp:string, version:number) {
     try {
       // Prevent fields injection
       if ( (h.message.match(WS2PConstants.HEAD_V1_REGEXP) || h.message.match(WS2PConstants.HEAD_V0_REGEXP))
@@ -189,11 +190,13 @@ export class WS2PCluster {
 
         const sigOK = verify(head.message, head.sig, pub)
         const sigV2OK = (head.messageV2 !== undefined && head.sigV2 !== undefined) ? verify(head.messageV2, head.sigV2, pub):false
-        if ((sigV2OK && sigOK) || sigOK) {
-          // Already known or more recent or closer ?
+        if ((version >= 2 && sigV2OK && sigOK) || (version == 1 && sigOK)) {
           const step = (this.headsCache[fullId]) ? this.headsCache[fullId].step || 0:0
-          if (!this.headsCache[fullId] // unknow head
-            || parseInt(this.headsCache[fullId].blockstamp) < parseInt(blockstamp) // more recent head
+          // Already known or more recent or closer ?
+          if (
+            !this.headsCache[fullId] // unknow head DOWNGRADE_WINDOW
+            || (parseInt(this.headsCache[fullId].blockstamp) < parseInt(blockstamp) && version >= this.headsCache[fullId].version) // more recent head 
+            || (parseInt(this.headsCache[fullId].blockstamp.split("-")[0]) < parseInt(blockstamp.split("-")[0])+WS2PConstants.DOWNGRADE_WINDOW) // head sufficiently newer to be lower version
             || (head.step !== undefined && head.step < step && this.headsCache[fullId].blockstamp === blockstamp) // closer head
           ) {
             // Check that issuer is a member and that the block exists
@@ -201,7 +204,7 @@ export class WS2PCluster {
             if (isAllowed) {
               const exists = await this.existsBlock(blockstamp)
               if (exists) {
-                this.headsCache[fullId] = { blockstamp, message: head.message, sig: head.sig, messageV2: head.messageV2, sigV2: head.sigV2, step: head.step }
+                this.headsCache[fullId] = { blockstamp, message: head.message, sig: head.sig, messageV2: head.messageV2, sigV2: head.sigV2, step: head.step, version: version }
                 this.newHeads.push(head)
               }
             }
