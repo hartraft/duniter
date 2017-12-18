@@ -6,14 +6,10 @@ import {ProverConstants} from "./constants"
 import {KeyGen} from "../../../lib/common-libs/crypto/keyring"
 import {dos2unix} from "../../../lib/common-libs/dos2unix"
 import {rawer} from "../../../lib/common-libs/index"
+import {ProcessCpuProfiler} from "../../../ProcessCpuProfiler"
 
 const moment = require('moment');
 const querablep = require('querablep');
-
-const PAUSES_PER_TURN = 5;
-
-// This value can be changed
-let TURN_DURATION_IN_MILLISEC = 100;
 
 let computing = querablep(Promise.resolve(null));
 let askedStop = false;
@@ -31,6 +27,10 @@ process.on('uncaughtException', (err:any) => {
     throw Error('process.send() is not defined')
   }
 });
+
+process.on('unhandledRejection', () => {
+  process.exit()
+})
 
 process.on('message', async (message) => {
 
@@ -78,6 +78,7 @@ function beginNewProofOfWork(stuff:any) {
      ****************/
 
     let nonce = 0;
+    const maxDuration = stuff.maxDuration || 1000
     const conf = stuff.conf;
     const block = stuff.block;
     const nonceBeginning = stuff.nonceBeginning;
@@ -90,7 +91,6 @@ function beginNewProofOfWork(stuff:any) {
       prefix *= 100 * ProverConstants.NONCE_RANGE
     }
     const highMark = stuff.highMark;
-    const turnDuration = stuff.turnDuration || TURN_DURATION_IN_MILLISEC
     let sigFunc = null;
     if (signatureFunc && lastSecret === pair.sec) {
       sigFunc = signatureFunc;
@@ -106,15 +106,20 @@ function beginNewProofOfWork(stuff:any) {
      * GO!
      ****************/
 
+    let pausePeriod = 1;
     let testsCount = 0;
     let found = false;
-    let score = 0;
     let turn = 0;
+    const profiler = new ProcessCpuProfiler(100)
+    let cpuUsage = profiler.cpuUsageOverLastMilliseconds(1)
+    // We limit the number of tests according to CPU usage
+    let testsPerRound = stuff.initialTestsPerRound || 1
+    let turnDuration = 20 // We initially goes quickly to the max speed = 50 reevaluations per second (1000 / 20)
 
     while (!found && !askedStop) {
 
       /*****************
-       * A TURN
+       * A TURN ~ 100ms
        ****************/
 
       await Promise.race([
@@ -125,26 +130,9 @@ function beginNewProofOfWork(stuff:any) {
         // II. Process the turn's PoW
         (async () => {
 
-          /*****************
-           * A TURN OF POW ~= 100ms by default
-           * --------------------
-           *
-           * The concept of "turn" is required to limit the CPU usage.
-           * We need a time reference to have the speed = nb tests / period of time.
-           * Here we have:
-           *
-           *   - speed = testsCount / turn
-           *
-           * We have taken 1 turn = 100ms to control the CPU usage after 100ms of PoW. This means that during the
-           * very first 100ms of the PoW, CPU usage = 100%. Then it becomes controlled to the %CPU set.
-           ****************/
-
             // Prove
           let i = 0;
           const thisTurn = turn;
-          const pausePeriod = score ? score / PAUSES_PER_TURN : 10; // number of pauses per turn
-          // We limit the number of tests according to CPU usage
-          const testsPerRound = score ? Math.floor(score * currentCPU) : 1000 * 1000 * 1000
 
           // Time is updated regularly during the proof
           block.time = getBlockTime(block, conf, forcedTime)
@@ -208,12 +196,24 @@ function beginNewProofOfWork(stuff:any) {
           if (!found) {
 
             // CPU speed recording
-            if (turn > 0 && !score) {
-              score = testsCount;
+            if (turn > 0) {
+              cpuUsage = profiler.cpuUsageOverLastMilliseconds(turnDuration)
+              if (cpuUsage > currentCPU + 0.005 || cpuUsage < currentCPU - 0.005) {
+                let powVariationFactor
+                // powVariationFactor = currentCPU / (cpuUsage || 0.01) / 5 // divide by 2 to avoid extreme responses
+                if (currentCPU > cpuUsage) {
+                  powVariationFactor = 1.01
+                  testsPerRound = Math.max(1, Math.ceil(testsPerRound * powVariationFactor))
+                } else {
+                  powVariationFactor = 0.99
+                  testsPerRound = Math.max(1, Math.floor(testsPerRound * powVariationFactor))
+                }
+                pausePeriod = Math.floor(testsPerRound / ProverConstants.POW_NB_PAUSES_PER_ROUND)
+              }
             }
 
             /*****************
-             * UNLOAD CPU CHARGE
+             * UNLOAD CPU CHARGE FOR THIS TURN
              ****************/
             // We wait for a maximum time of `turnDuration`.
             // This will trigger the end of the turn by the concurrent race I. During that time, the proof.js script
@@ -226,6 +226,9 @@ function beginNewProofOfWork(stuff:any) {
 
       // Next turn
       turn++
+
+      turnDuration += 1
+      turnDuration = Math.min(turnDuration, maxDuration) // Max 1 second per turn
     }
 
     /*****************
@@ -239,6 +242,7 @@ function beginNewProofOfWork(stuff:any) {
 
       // PoW stopped
       askedStop = false;
+      pSend({ canceled: true })
       return null
 
     } else {
