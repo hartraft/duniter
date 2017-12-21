@@ -13,7 +13,7 @@ if yesno "${DUNITER_WEB}"; then
 		command_args="${command_args} --webmhost \"${DUNITER_WEB_HOST}\""
 	fi
 	if [[ ! -z ${DUNITER_WEB_PORT} ]]; then
-		command_args="${command_args} \"--webmport ${DUNITER_WEB_PORT}\""
+		command_args="${command_args} --webmport \"${DUNITER_WEB_PORT}\""
 	fi
 else
 	command_args="start"
@@ -21,7 +21,7 @@ fi
 if [[ ! -z ${DUNITER_KEYS} ]] && [[ -r ${DUNITER_KEYS} ]]; then
 	command_args="${command_args} --keyfile \"${DUNITER_KEYS}\""
 fi
-command_args="${command_args} --home \"${DUNITER_HOME}\" --mdb \"${DUNITER_DATA}\""
+command_args="${command_args} --home \"${DUNITER_HOME}\" --mdb \"${DUNITER_DATA}\" ${DUNITER_SSD_OPTIONS}"
 start_stop_daemon_args="--user \"${DUNITER_USER}\":\"${DUNITER_GROUP}\""
 description="Duniter node"
 
