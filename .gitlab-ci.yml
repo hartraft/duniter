@@ -1,10 +1,7 @@
 stages:
     - github-sync
     - test
-
-before_script:
-    - export NVM_DIR="$HOME/.nvm"
-    - . "$NVM_DIR/nvm.sh"
+    - build-release
 
 push_to_github:
     stage: github-sync
@@ -12,8 +9,6 @@ push_to_github:
         GIT_STRATEGY: none
     tags:
         - redshift
-    before_script:
-        - ''
     script:
         - rm -rf ./*
         - rm -rf .git
@@ -32,8 +27,6 @@ enforce_readme:
         GIT_STRATEGY: none
     tags:
         - redshift
-    before_script:
-        - ''
     script:
       - rm -rf ./*
       - rm -rf .git
@@ -51,6 +44,21 @@ test:
   stage: test
   tags:
     - redshift
+  before_script:
+    - export NVM_DIR="$HOME/.nvm"
+    - . "$NVM_DIR/nvm.sh"
   script:
     - yarn
     - yarn test
+    
+publish:  
+  stage: build-release
+  image: node:6.12-alpine
+  tags:
+    - redshift-duniter-builder
+  only:
+    - tags
+    - triggers
+  script:
+    - ''
+
