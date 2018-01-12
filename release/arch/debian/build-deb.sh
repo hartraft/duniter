@@ -207,6 +207,6 @@ cd ${RELEASES}
 sed -i "s/Package: .*/Package: duniter/g" ${RELEASES}/duniter-server-x64/DEBIAN/control
 rm -rf ${RELEASES}/duniter-server-x64/usr
 mkdir -p ${RELEASES}/duniter-server-x64/lib/systemd/system
-cp "${RELEASES}/duniter/release/contrib/systemd/duniter.service" ${RELEASES}/duniter-server-x64/lib/systemd/system
+cp "${RELEASES}/duniter/release/extra/systemd/duniter.service" ${RELEASES}/duniter-server-x64/lib/systemd/system
 fakeroot dpkg-deb --build duniter-server-x64
 mv duniter-server-x64.deb /vagrant/duniter-server-${DUNITER_TAG}-linux-x64.deb
